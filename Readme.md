@@ -53,14 +53,13 @@ func ExampleHbg() {
     // 另一个线程中启动数据监听
 	go client.ReceiveMessage()
 
-    // 另一个线程杀掉这个程序
+    // 另一个线， 100秒以后关闭测试
 	go func() {
 		time.Sleep(100 * time.Second)
 		cancel()
 	}()
 
-    // 关闭链接:w
-
+    // 关闭链接
 	select {
 	case <-ctx.Done():
 		client.Close()
