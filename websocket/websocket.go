@@ -109,7 +109,7 @@ func DumpResponse(resp *http.Response, body bool) {
 	}
 
 	d, _ := httputil.DumpResponse(resp, body)
-	logger.Debug("[ws] response:", string(d))
+	logger.Info("[ws] response:", string(d))
 }
 
 func SystemErrorFunc(err error) {
