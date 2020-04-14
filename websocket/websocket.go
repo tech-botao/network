@@ -249,6 +249,10 @@ func (w *WsClient) WriteMessage(messageType int, msg []byte) error {
 	return w.conn.WriteMessage(messageType, msg)
 }
 
+func (w *WsClient) WriteControl(messageType int, msg []byte, deadline time.Time) error {
+	return w.conn.WriteControl(messageType, msg, deadline)
+}
+
 //// TODO 需要修改
 //// Logger Interface , Default tech-botao logger
 //func (w *WsClient) OnError(err error) {
