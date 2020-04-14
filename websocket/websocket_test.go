@@ -16,6 +16,7 @@ func ExampleHbg() {
 		Subs([]string{`{"id": "id1", "sub": "market.btcusdt.kline.1min"}`,}).
 		Dump().
 		AutoReconnect().
+		Dialer(websocket.DefaultDialer).
 		Build(ctx)
 
 	client.MessageFunc = func(msg []byte) error {

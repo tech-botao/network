@@ -18,6 +18,7 @@ type (
 
 	WsBuilder struct {
 		config *WsConfig
+		dialer *websocket.Dialer
 	}
 
 	WsConfig struct {
@@ -33,6 +34,7 @@ type (
 		ctx    context.Context
 		config *WsConfig
 		conn   *websocket.Conn
+		dialer *websocket.Dialer
 
 		MessageFunc     func(msg []byte) error
 		UncompressFunc  func(msg []byte) ([]byte, error)
@@ -46,6 +48,7 @@ func NewBuilder() *WsBuilder {
 			IsDump:          false,
 			IsAutoReconnect: false,
 		},
+		dialer: websocket.DefaultDialer,
 	}
 }
 
@@ -74,6 +77,11 @@ func (b *WsBuilder) Dump() *WsBuilder {
 	return b
 }
 
+func (b *WsBuilder) Dialer(d *websocket.Dialer) *WsBuilder {
+	b.dialer = d
+	return b
+}
+
 func (b *WsBuilder) ReadDeadLineTime(t time.Duration) *WsBuilder {
 	b.config.readDeadLineTime = t
 	return b
@@ -85,6 +93,7 @@ func (b *WsBuilder) Build(ctx context.Context) *WsClient {
 		ctx:    ctx,
 		config: b.config,
 		conn:   nil,
+		dialer: b.dialer,
 
 		MessageFunc:     DefaultMessageFunc,
 		UncompressFunc:  DefaultUncompressFunc,
@@ -128,7 +137,7 @@ func (w *WsClient) dump(resp *http.Response, body bool) {
 }
 
 func (w *WsClient) Connect() error {
-	conn, resp, err := websocket.DefaultDialer.Dial(w.config.WsUrl, w.config.Header)
+	conn, resp, err := w.dialer.Dial(w.config.WsUrl, w.config.Header)
 	defer w.dump(resp, true)
 	if err != nil {
 		return err
