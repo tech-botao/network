@@ -25,7 +25,7 @@ func ExampleHbg() {
 			logger.Info("pong", pong)
 			return client.WriteMessage(websocket.TextMessage, []byte(pong))
 		}
-		logger.Info("[ws] receive message", msg)
+		logger.Info("[ws] receive message", string(msg))
 		return nil
 	}
 

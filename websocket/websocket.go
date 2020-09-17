@@ -171,6 +171,7 @@ func (w *WsClient) Reconnect() error {
 			w.SystemErrorFunc(errors.Wrap(err, fmt.Sprintf("[ws] websocket reconnect fail, retry[%d]", retry)))
 			continue
 		} else {
+			logger.Info("[ws] retry", retry)
 			break
 		}
 	}
@@ -198,7 +199,7 @@ func (w *WsClient) ReceiveMessage() {
 			w.SystemErrorFunc(err)
 			err := w.Reconnect()
 			if err != nil {
-				// Add Quit Handler
+				w.SystemErrorFunc(err)
 				return
 			}
 		}
@@ -230,15 +231,16 @@ func (w *WsClient) ReceiveMessage() {
 		case websocket.CloseAbnormalClosure:
 			logger.Info("[ws] abnormal close message", string(msg))
 			w.Close()
-			return
 		case websocket.CloseMessage:
 			logger.Info("[ws] close message", string(msg))
 			w.Close()
-			return
 		case websocket.CloseGoingAway:
 			logger.Info("[ws] goaway message", string(msg))
 			w.Close()
-			return
+		case websocket.PingMessage:
+			logger.Info("[ws] receive ping", string(msg))
+		case websocket.PongMessage:
+			logger.Info("[ws] receive pong", string(msg))
 		default:
 			logger.Error(fmt.Sprintf("[ws][%s] error websocket messageType = %d", w.config.WsUrl, messageType), msg)
 		}
