@@ -15,19 +15,20 @@ import (
 )
 
 type (
-
 	WsBuilder struct {
 		config *WsConfig
 		dialer *websocket.Dialer
 	}
 
 	WsConfig struct {
-		WsUrl            string
-		Header           http.Header
-		Subs             []string
-		IsDump           bool
-		IsAutoReconnect  bool
-		readDeadLineTime time.Duration
+		WsUrl             string
+		Header            http.Header
+		Subs              []string
+		IsDump            bool
+		IsAutoReconnect   bool
+		readDeadLineTime  time.Duration
+		reconnectCount    int
+		reconnectInterval time.Duration
 	}
 
 	WsClient struct {
@@ -35,21 +36,40 @@ type (
 		config *WsConfig
 		conn   *websocket.Conn
 		dialer *websocket.Dialer
+		cancel context.CancelFunc
 
-		MessageFunc     func(msg []byte) error
-		UncompressFunc  func(msg []byte) ([]byte, error)
-		SystemErrorFunc func(err error)
+		MessageFunc        func(msg []byte) error
+		UncompressFunc     func(msg []byte) ([]byte, error)
+		SystemErrorFunc    func(err error)
+		AfterConnectedFunc func() error
 	}
 )
+
+// GetConn 返回Conn的
+func (w *WsClient) GetConn() *websocket.Conn {
+	return w.conn
+}
 
 func NewBuilder() *WsBuilder {
 	return &WsBuilder{
 		config: &WsConfig{
-			IsDump:          false,
-			IsAutoReconnect: false,
+			IsDump:            false,
+			IsAutoReconnect:   false,
+			reconnectInterval: time.Second,
+			reconnectCount:    100,
 		},
 		dialer: websocket.DefaultDialer,
 	}
+}
+
+func (b *WsBuilder) ReconnectCount(count int) *WsBuilder {
+	b.config.reconnectCount = count
+	return b
+}
+
+func (b *WsBuilder) ReconnectInterval(interval time.Duration) *WsBuilder {
+	b.config.reconnectInterval = interval
+	return b
 }
 
 func (b *WsBuilder) URL(url string) *WsBuilder {
@@ -87,19 +107,20 @@ func (b *WsBuilder) ReadDeadLineTime(t time.Duration) *WsBuilder {
 	return b
 }
 
-func (b *WsBuilder) Build(ctx context.Context) *WsClient {
+func (b *WsBuilder) Build(ctx context.Context, cancel context.CancelFunc) *WsClient {
 
-	client := &WsClient{
+	var client = &WsClient{
 		ctx:    ctx,
 		config: b.config,
 		conn:   nil,
 		dialer: b.dialer,
+		cancel: cancel,
 
-		MessageFunc:     DefaultMessageFunc,
-		UncompressFunc:  DefaultUncompressFunc,
-		SystemErrorFunc: SystemErrorFunc,
+		MessageFunc:        DefaultMessageFunc,
+		UncompressFunc:     DefaultUncompressFunc,
+		SystemErrorFunc:    SystemErrorFunc,
+		AfterConnectedFunc: DefaultAfterConnected,
 	}
-
 	return client
 }
 
@@ -122,11 +143,16 @@ func DumpResponse(resp *http.Response, body bool) {
 }
 
 func SystemErrorFunc(err error) {
-	logger.Error("", err)
+	logger.Error("[ws] system error", err.Error())
 }
 
 func DefaultMessageFunc(msg []byte) error {
 	logger.Info("[ws] receive message", string(msg))
+	return nil
+}
+
+func DefaultAfterConnected() error {
+	logger.Info("[ws] connect success.", time.Now().Format("2006-01-02 15:04:05"))
 	return nil
 }
 
@@ -144,6 +170,11 @@ func (w *WsClient) Connect() error {
 	}
 	w.conn = conn
 
+	err = w.AfterConnectedFunc()
+	if err != nil {
+		return err
+	}
+
 	if len(w.config.Subs) > 0 {
 		for _, s := range w.config.Subs {
 			err = w.conn.WriteMessage(websocket.TextMessage, []byte(s))
@@ -160,12 +191,14 @@ func (w *WsClient) Reconnect() error {
 	if w.conn != nil {
 		err = w.conn.Close()
 		if err != nil {
-			return err
+			w.SystemErrorFunc(errors.Wrapf(err, "[ws] [%s] close websocket error", w.config.WsUrl))
+			w.conn = nil
+			//return err
 		}
 	}
 
-	for retry := 1; retry <= 100; retry++ {
-		time.Sleep(time.Duration(retry*10) * time.Second)
+	for retry := 1; retry <= w.config.reconnectCount; retry++ {
+		time.Sleep(w.config.reconnectInterval)
 		err = w.Connect()
 		if err != nil {
 			w.SystemErrorFunc(errors.Wrap(err, fmt.Sprintf("[ws] websocket reconnect fail, retry[%d]", retry)))
@@ -186,20 +219,22 @@ func (w *WsClient) Close() {
 	} else {
 		logger.Info("[ws] close websocket success.", nil)
 	}
+	time.Sleep(time.Second)
+	w.cancel()
 }
 
 func (w *WsClient) ReceiveMessage() {
-
 	var err error
 	var msg []byte
 	var messageType int
+	defer w.Close()
 	for {
 		messageType, msg, err = w.conn.ReadMessage()
 		if err != nil {
 			w.SystemErrorFunc(err)
 			err := w.Reconnect()
 			if err != nil {
-				w.SystemErrorFunc(err)
+				w.SystemErrorFunc(errors.Wrap(err, "[ws] quit message loop."))
 				return
 			}
 		}
@@ -229,14 +264,11 @@ func (w *WsClient) ReceiveMessage() {
 				}
 			}
 		case websocket.CloseAbnormalClosure:
-			logger.Info("[ws] abnormal close message", string(msg))
-			w.Close()
+			w.SystemErrorFunc(errors.Wrap(fmt.Errorf("%s", string(msg)), "[ws] abnormal close message"))
 		case websocket.CloseMessage:
-			logger.Info("[ws] close message", string(msg))
-			w.Close()
+			w.SystemErrorFunc(errors.Wrap(fmt.Errorf("%s", string(msg)), "[ws] close message"))
 		case websocket.CloseGoingAway:
-			logger.Info("[ws] goaway message", string(msg))
-			w.Close()
+			w.SystemErrorFunc(errors.Wrap(fmt.Errorf("%s", string(msg)), "[ws] goaway message"))
 		case websocket.PingMessage:
 			logger.Info("[ws] receive ping", string(msg))
 		case websocket.PongMessage:
@@ -254,9 +286,3 @@ func (w *WsClient) WriteMessage(messageType int, msg []byte) error {
 func (w *WsClient) WriteControl(messageType int, msg []byte, deadline time.Time) error {
 	return w.conn.WriteControl(messageType, msg, deadline)
 }
-
-//// TODO 需要修改
-//// Logger Interface , Default tech-botao logger
-//func (w *WsClient) OnError(err error) {
-//	_, _ = pp.Println(err)
-//}

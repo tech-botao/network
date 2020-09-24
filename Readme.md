@@ -66,7 +66,6 @@ func ExampleHbg() {
 	}
 
 	// output:
-
 }
 ```
 
