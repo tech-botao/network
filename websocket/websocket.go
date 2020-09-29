@@ -273,8 +273,9 @@ func (w *WsClient) ReceiveMessage() {
 			logger.Info("[ws] receive ping", string(msg))
 		case websocket.PongMessage:
 			logger.Info("[ws] receive pong", string(msg))
-		default:
-			logger.Error(fmt.Sprintf("[ws][%s] error websocket messageType = %d", w.config.WsUrl, messageType), msg)
+		//case -1: // possibly is noFrame
+		//default:
+		//	logger.Error(fmt.Sprintf("[ws][%s] error websocket messageType = %d", w.config.WsUrl, messageType), msg)
 		}
 	}
 }
